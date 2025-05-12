@@ -1,0 +1,254 @@
+// full HTML updated to:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Item Calculator</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f2f4f7;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 960px;
+      margin: auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+    h2 {
+      margin-top: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+    }
+    th, td {
+      padding: 10px;
+      text-align: center;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .add-btn, .share-btn {
+      margin-top: 15px;
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .add-btn:hover, .share-btn:hover {
+      background-color: #0056b3;
+    }
+    .total {
+      font-weight: bold;
+      font-size: 1.1rem;
+      text-align: right;
+      margin-top: 10px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #333;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      opacity: 0;
+      transition: opacity 0.4s ease-in-out;
+    }
+    .toast.show {
+      opacity: 1;
+    }
+    #historyContainer {
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Invoice Generator</h2>
+    <div>
+      <label>Business Name: <input type="text" id="businessName" /></label><br/><br/>
+      <label>Business Phone: <input type="text" id="businessPhone" /></label><br/><br/>
+      <label>Client Name: <input type="text" id="clientName" /></label><br/><br/>
+      <label>Client Phone: <input type="text" id="clientPhone" /></label><br/><br/>
+    </div>
+
+    <table id="inputTable">
+      <thead>
+        <tr>
+          <th>Item Name</th>
+          <th>Quantity</th>
+          <th>Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <button class="add-btn" onclick="addRow()">Add Item</button>
+
+    <h2>Invoice Summary</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Quantity</th>
+          <th>Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody id="summaryTable"></tbody>
+    </table>
+    <div class="total">Total Amount: ₹<span id="totalAmount">0.00</span></div>
+    <button class="share-btn" onclick="shareInvoice()">Send to Client on WhatsApp</button>
+
+    <div class="toast" id="toast"></div>
+
+    <div id="historyContainer">
+      <h2>Client Invoice History</h2>
+      <ul id="historyList"></ul>
+    </div>
+  </div>
+
+  <script>
+    const tableBody = document.getElementById("tableBody");
+    const summaryTable = document.getElementById("summaryTable");
+    const totalAmountEl = document.getElementById("totalAmount");
+    const toastEl = document.getElementById("toast");
+    const historyList = document.getElementById("historyList");
+
+    const businessNameInput = document.getElementById("businessName");
+    const businessPhoneInput = document.getElementById("businessPhone");
+    const clientNameInput = document.getElementById("clientName");
+    const clientPhoneInput = document.getElementById("clientPhone");
+
+    const itemSuggestions = JSON.parse(localStorage.getItem("itemSuggestions") || "[]");
+    const clientHistory = JSON.parse(localStorage.getItem("clientHistory") || "[]");
+    const invoiceHistory = JSON.parse(localStorage.getItem("invoiceHistory") || "[]");
+
+    businessNameInput.value = localStorage.getItem("businessName") || "";
+    businessPhoneInput.value = localStorage.getItem("businessPhone") || "";
+
+    businessNameInput.addEventListener("input", () => localStorage.setItem("businessName", businessNameInput.value));
+    businessPhoneInput.addEventListener("input", () => localStorage.setItem("businessPhone", businessPhoneInput.value));
+
+    function showToast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 3000);
+    }
+
+    function renderHistory() {
+      historyList.innerHTML = "";
+      invoiceHistory.slice().reverse().forEach(entry => {
+        const li = document.createElement("li");
+        li.textContent = `${entry.client} (₹${entry.total}) - ${entry.timestamp}`;
+        historyList.appendChild(li);
+      });
+    }
+
+    function createItemDropdown() {
+      const datalist = document.createElement("datalist");
+      datalist.id = "itemOptions";
+      itemSuggestions.forEach(item => {
+        const option = document.createElement("option");
+        option.value = item;
+        datalist.appendChild(option);
+      });
+      document.body.appendChild(datalist);
+    }
+
+    function addRow() {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><input type="text" class="item-name" list="itemOptions"></td>
+        <td><input type="number" class="quantity" value="0" min="0"></td>
+        <td><input type="number" class="rate" value="0" min="0"></td>
+        <td class="amount">0.00</td>
+      `;
+      tableBody.appendChild(row);
+
+      row.querySelectorAll("input").forEach(input => {
+        input.addEventListener("input", () => updateSummary(row));
+      });
+    }
+
+    function updateSummary(row) {
+      summaryTable.innerHTML = "";
+      let total = 0;
+      [...tableBody.children].forEach(tr => {
+        const nameInput = tr.querySelector(".item-name");
+        const name = nameInput.value;
+        const qty = parseFloat(tr.querySelector(".quantity").value) || 0;
+        const rate = parseFloat(tr.querySelector(".rate").value) || 0;
+        const amount = qty * rate;
+        tr.querySelector(".amount").innerText = amount.toFixed(2);
+
+        if (name.trim()) {
+          const sumRow = document.createElement("tr");
+          sumRow.innerHTML = `
+            <td>${name}</td>
+            <td>${qty}</td>
+            <td>₹${rate.toFixed(2)}</td>
+            <td>₹${amount.toFixed(2)}</td>
+          `;
+          summaryTable.appendChild(sumRow);
+
+          if (row === tr && qty > 0 && rate > 0) {
+            showToast(`✅ ${name}: ₹${amount.toFixed(2)}`);
+          }
+
+          if (!itemSuggestions.includes(name)) {
+            itemSuggestions.push(name);
+            localStorage.setItem("itemSuggestions", JSON.stringify(itemSuggestions));
+          }
+        }
+        total += amount;
+      });
+      totalAmountEl.innerText = total.toFixed(2);
+    }
+
+    function shareInvoice() {
+      const business = encodeURIComponent(businessNameInput.value);
+      const client = encodeURIComponent(clientNameInput.value);
+      const clientRaw = clientNameInput.value;
+      const clientPhone = clientPhoneInput.value;
+
+      let message = `Hi ${clientRaw}, thank you for your business with ${businessNameInput.value}. Here is your invoice summary:\n`;
+      [...summaryTable.children].forEach(row => {
+        const cells = row.querySelectorAll("td");
+        message += `\n${cells[0].innerText} - Qty: ${cells[1].innerText}, Rate: ${cells[2].innerText}, Amount: ${cells[3].innerText}`;
+      });
+      message += `\n\nTotal: ₹${totalAmountEl.innerText}\n\nWe appreciate your trust in us!`;
+
+      if (clientRaw) {
+        const timestamp = new Date().toLocaleString();
+        invoiceHistory.push({ client: clientRaw, total: totalAmountEl.innerText, timestamp });
+        localStorage.setItem("invoiceHistory", JSON.stringify(invoiceHistory));
+        renderHistory();
+      }
+
+      const url = `https://wa.me/${clientPhone}?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+    }
+
+    createItemDropdown();
+    renderHistory();
+    addRow();
+  </script>
+</body>
+</html>
